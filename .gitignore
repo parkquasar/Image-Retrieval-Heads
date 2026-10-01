@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+outputs/
+data/COCO/
+data/MM-NIAH/
+data/visual_haystacks/
+*.h5
+*.pt
