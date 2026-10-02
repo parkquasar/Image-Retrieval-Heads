@@ -1,3 +1,6 @@
+# Conversation templates for InternVL chat formatting.
+# Copied from InternVL (OpenGVLab, MIT License), which in turn derives this file from
+# FastChat (lm-sys, Apache License 2.0). See THIRD_PARTY_NOTICES.md.
 """
 Conversation prompt templates.
 

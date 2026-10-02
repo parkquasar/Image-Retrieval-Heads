@@ -139,6 +139,19 @@ python eval/build_topk_sweep_table.py --out outputs/appendix_topk.tex
 python eval/build_setpartition_view.py --out outputs/setpartition.tex --figs-dir outputs/figs
 ```
 
+## Reproducibility notes
+
+- Everything that does not involve probe training reproduces exactly on our hardware: the ICIR-MCQ
+  builder (byte-identical files), head extraction (bit-identical H5), pointer rankings, single-head
+  R@1 on Visual Haystacks, baselines and random controls of the ablations.
+- Probe training is not bit-deterministic (multi-process GPU training), so a retrained writer ranking
+  agrees with the shipped one at Spearman about 0.995 with 93 of 100 top heads shared. Set-partition
+  cells that depend on which heads sit at the top-100 boundary (pointer-only at large K in particular)
+  can move by a few points between retrainings. To reproduce the paper's ablation cells exactly, use
+  the shipped rankings in `assets/head_rankings/` as described in step 3.
+- CLIP and SigLIP numbers require the prompt handling in `eval/eval_vhs_external_retrievers.py`
+  (80-template mean of normalised embeddings; SigLIP text padded to its 64-token maximum).
+
 ## Notes
 
 - Use FlashAttention-2 for anything with long contexts; `ATTN_IMPL=sdpa` works but is slower and

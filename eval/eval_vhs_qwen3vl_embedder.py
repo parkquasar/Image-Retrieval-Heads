@@ -36,7 +36,6 @@ from transformers.models.qwen3_vl.modeling_qwen3_vl import (
 )
 from transformers.models.qwen3_vl.processing_qwen3_vl import Qwen3VLProcessor
 from transformers.modeling_outputs import ModelOutput
-from qwen_vl_utils import process_vision_info
 
 
 from utils.model_utils import DATA_ROOT, COCO_ROOT, ATTN_ROOT
@@ -80,7 +79,8 @@ class _EmbeddingOutput(ModelOutput):
 
 
 class Qwen3VLForEmbedding(Qwen3VLPreTrainedModel):
-    """Direct port of the reference Qwen3VLForEmbedding wrapper."""
+    """Port of the reference Qwen3VLForEmbedding wrapper from the Qwen3-VL-Embedding
+    repository (Alibaba Qwen team, Apache License 2.0). See THIRD_PARTY_NOTICES.md."""
     config: Qwen3VLConfig
 
     def __init__(self, config):
@@ -129,6 +129,25 @@ def _format_conversation(text: Optional[str], image: Optional[Image.Image],
     return conv
 
 
+def _smart_resize_image(img: Image.Image, factor: int = 32,
+                        min_pixels: int = MIN_PIXELS, max_pixels: int = MAX_PIXELS) -> Image.Image:
+    """Resize so both sides are multiples of `factor` and the pixel count lies in
+    [min_pixels, max_pixels], keeping the aspect ratio (the qwen_vl_utils rule)."""
+    import math
+    h, w = img.height, img.width
+    h_bar = max(factor, round(h / factor) * factor)
+    w_bar = max(factor, round(w / factor) * factor)
+    if h_bar * w_bar > max_pixels:
+        beta = math.sqrt((h * w) / max_pixels)
+        h_bar = max(factor, math.floor(h / beta / factor) * factor)
+        w_bar = max(factor, math.floor(w / beta / factor) * factor)
+    elif h_bar * w_bar < min_pixels:
+        beta = math.sqrt(min_pixels / (h * w))
+        h_bar = math.ceil(h * beta / factor) * factor
+        w_bar = math.ceil(w * beta / factor) * factor
+    return img.convert('RGB').resize((w_bar, h_bar), Image.BICUBIC)
+
+
 @torch.no_grad()
 def _embed(model, processor, items: List[Dict[str, Any]], device) -> torch.Tensor:
     """Each item carries its own 'instruction' (falls back to DEFAULT_DOC_INSTRUCTION)."""
@@ -140,12 +159,14 @@ def _embed(model, processor, items: List[Dict[str, Any]], device) -> torch.Tenso
     ]
     text = processor.apply_chat_template(
         conversations, add_generation_prompt=True, tokenize=False)
-    try:
-        images, video_inputs, video_kwargs = process_vision_info(
-            conversations, image_patch_size=16,
-            return_video_metadata=True, return_video_kwargs=True)
-    except Exception:
-        images, video_inputs, video_kwargs = None, None, {'do_sample_frames': False}
+    # Resize images ourselves (Qwen3-VL patch 16 x merge 2 = factor 32) so that the
+    # result does not depend on the installed qwen_vl_utils version.
+    images = [_smart_resize_image(part['image'])
+              for c in conversations for m in c
+              for part in (m['content'] if isinstance(m['content'], list) else [])
+              if part.get('type') == 'image'] or None
+    video_inputs, video_kwargs = None, {}
+    n_img = len(images) if images else 0
 
     if video_inputs is not None:
         videos, video_metadata = zip(*video_inputs)
@@ -158,6 +179,8 @@ def _embed(model, processor, items: List[Dict[str, Any]], device) -> torch.Tenso
         truncation=True, max_length=MAX_LENGTH, padding=True, do_resize=False,
         return_tensors='pt', **video_kwargs,
     )
+    if n_img and 'pixel_values' not in inputs:
+        raise RuntimeError('processor produced no pixel_values for an image input')
     inputs = {k: v.to(device) for k, v in inputs.items()}
     outputs = model(**inputs)
     last_h = outputs.last_hidden_state
