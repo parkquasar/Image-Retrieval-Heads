@@ -1,6 +1,9 @@
 # Heads That Write, Not Just Point: Image Retrieval Heads in Vision-Language Models
 
-Code and data for the NeurIPS 2026 paper. The pipeline finds *pointer heads* (attention mass
+Code and data for the NeurIPS 2026 paper.
+
+- Dataset (ICIR-MCQ, 6,000 samples, CC BY 4.0): https://huggingface.co/datasets/jerryray/ICIR-MCQ
+- Code: this repository (MIT, see `LICENSE`; third-party notices in `THIRD_PARTY_NOTICES.md`) The pipeline finds *pointer heads* (attention mass
 on the target image) and *writer heads* (a lightweight retriever trained on the head output can
 recover the target image) in InternVL3.5 and Qwen3-VL, then checks causal relevance with
 output-zero ablations on Visual Haystacks.
@@ -50,9 +53,14 @@ Model snapshots are pinned to specific commits in `utils/model_utils.py`. Model 
 
 ## ICIR-MCQ
 
-Download `ICIR-MCQ.tar.gz` (link in the paper) and unpack it to `$ATTN_ROOT/datasets/`. It contains
-`coco_retrieval_n5n6_mcq.jsonl` (6,000 samples: 3,000 with five images, then 3,000 with six), a
-data card and checksums. Images are referenced by COCO-relative path, so `COCO_ROOT` is still needed.
+The 6,000 samples used in the paper are on Hugging Face: https://huggingface.co/datasets/jerryray/ICIR-MCQ
+(`coco_retrieval_n5n6_mcq.jsonl`, 3,000 with five images, then 3,000 with six; data card and
+checksums included). Images are referenced by COCO-relative path, so `COCO_ROOT` is still needed.
+
+```bash
+huggingface-cli download jerryray/ICIR-MCQ coco_retrieval_n5n6_mcq.jsonl --repo-type dataset \
+    --local-dir $ATTN_ROOT/datasets
+```
 
 The builder reproduces the file bit for bit (seed 42); it writes the two halves separately and
 their concatenation equals the shipped file:
