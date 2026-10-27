@@ -1,13 +1,13 @@
 """
 Full-pool Recall@1/Recall@5 evaluation for all saved head checkpoints (MCQ format).
 
-전략: HDF5 한 번 열어 test set 전체를 메모리에 올린 뒤,
-모든 (layer, head, phase, emb_type) 조합을 순수 PyTorch 연산으로 평가 → 빠름.
+Strategy: open the HDF5 once, load the whole test set into memory, then
+evaluate every (layer, head, phase, emb_type) combination with pure PyTorch ops (fast).
 
-Dedup: 같은 이미지를 가리키는 샘플을 클러스터링해서 공정한 N-way retrieval 수행.
-Generation phase: test set에서 ansA만 사용 (모든 verified sample에서 correct=True 보장).
+Dedup: samples that point to the same image are clustered so that the N-way retrieval is fair.
+Generation phase: only ansA of the test set is used (correct=True on every verified sample).
 
-사용법 (model-dir mode — preferred):
+Usage (model-dir mode, preferred):
     python training/rank_heads_retriever.py \
         --model-dir $ATTN_ROOT/internvl3_5_8b \
         --retriever-name standard_b256_lr1e-3_norm \
@@ -17,7 +17,7 @@ Generation phase: test set에서 ansA만 사용 (모든 verified sample에서 co
     #   checkpoints from {model_dir}/retriever/{name}/
     #   output to {model_dir}/head_rankings/{name}/
 
-사용법 (explicit paths — legacy):
+Usage (explicit paths, legacy):
     python training/rank_heads_retriever.py \
         --checkpoint_dir $ATTN_ROOT/internvl3_5_8b/retriever/standard_b256_lr1e-3_norm \
         --h5_paths $ATTN_ROOT/internvl3_5_8b/coco_mcq/head_outputs_w0.h5 \

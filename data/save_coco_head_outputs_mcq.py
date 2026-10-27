@@ -185,30 +185,30 @@ class AttnScoreCollector:
             self.hooks.append(attn.k_proj.register_forward_hook(make_k(li)))
 
     def _assert_full_attention(self):
-        """attention mass 재구성은 full attention을 전제한다.
+        """Reconstructing attention mass assumes full attention.
 
-        compute_scores는 q(cattok 행)와 전체 시퀀스 k의 내적에 softmax를 걸어
-        per-image attention mass를 복원한다. sliding-window attention을 쓰는
-        모델에서는 window 밖 위치가 실제로는 마스킹되어 0인데, 마스크 없이
-        softmax를 걸면 그 위치들에 **실재하지 않는 mass**가 배분된다. 로그에는
-        아무 이상이 없어 그대로 통과한다.
+        compute_scores applies a softmax to the dot products between q (the cattok row) and
+        the keys of the whole sequence to recover per-image attention mass. In a model with
+        sliding-window attention the positions outside the window are masked to zero, so a
+        softmax without that mask assigns mass to positions the model never attends to, and
+        nothing in the logs would reveal it.
 
-        예: Gemma-3는 48층 중 40층이 sliding(window 1024)이고 full은 8층뿐이다
-        (layer_types가 5:1 패턴). ICIR-MCQ 프롬프트가 약 9,000 토큰이라 sliding
-        층에서 cattok은 후보 이미지의 약 90%를 물리적으로 볼 수 없다. 이 경우
-        640개 head의 pointer score가 전부 허수가 된다.
+        Example: Gemma-3 uses sliding-window attention (window 1024) in 40 of its 48 layers
+        (a 5:1 layer_types pattern). An ICIR-MCQ prompt is about 9,000 tokens, so in the
+        sliding layers the cattok cannot see about 90% of the candidate images, and the
+        pointer scores of those 640 heads would be meaningless.
 
-        현재 지원 모델(InternVL 3.5, Qwen3-VL, LLaVA-OneVision, Pixtral)은 전부
-        full attention이므로 기존 결과에는 영향이 없다. sliding-window 모델을
-        추가하려면 compute_scores에 window 마스크를 먼저 구현해야 한다.
+        The supported models (InternVL3.5, Qwen3-VL, LLaVA-OneVision, Pixtral) all use
+        full attention, so the released results are unaffected. To add a sliding-window
+        model, implement the window mask in compute_scores first.
         """
         if self.model is None:
-            print('  [WARN] full-attention 가드: model 미전달로 검사 생략')
+            print('  [WARN] full-attention guard: no model passed, check skipped')
             return
         cfg = getattr(self.model, 'config', None)
         tcfg = getattr(cfg, 'text_config', cfg) if cfg is not None else None
         if tcfg is None:
-            print('  [WARN] full-attention 가드: config 없음으로 검사 생략')
+            print('  [WARN] full-attention guard: no config, check skipped')
             return
         types = getattr(tcfg, 'layer_types', None)
         sw = getattr(tcfg, 'sliding_window', None)
@@ -219,12 +219,12 @@ class AttnScoreCollector:
             bad = list(range(getattr(tcfg, 'num_hidden_layers', 0)))
         if bad:
             raise RuntimeError(
-                f'[FATAL] sliding-window attention 감지: {len(bad)}/{len(types) if types else "?"} 층 '
-                f'(window={sw}). compute_scores가 마스크를 적용하지 않으므로 '
-                f'이 층들의 per-image attention mass는 실재하지 않는 값이 됩니다. '
-                f'window 마스크를 구현하기 전까지 이 모델로 추출하지 마세요. '
-                f'(full-attention 층 인덱스: '
-                f'{[i for i, t in enumerate(types) if "sliding" not in str(t)] if types else "없음"})')
+                f'[FATAL] sliding-window attention detected in {len(bad)}/{len(types) if types else "?"} layers '
+                f'(window={sw}). compute_scores does not apply the window mask, so '
+                f'the per-image attention mass of these layers would be meaningless. '
+                f'Do not extract with this model until the window mask is implemented. '
+                f'(full-attention layer indices: '
+                f'{[i for i, t in enumerate(types) if "sliding" not in str(t)] if types else "none"})')
 
     def compute_scores(self, n_images):
         scores_sum = np.zeros((self.num_layers, self.num_heads, n_images), dtype=np.float32)
@@ -267,7 +267,7 @@ class AttnScoreCollector:
 # ── Run one MCQ variant ────────────────────────────────────────────────────────
 
 class QAnchorNotFound(Exception):
-    """--anchor question 인데 ' {category}' 토큰열을 못 찾은 경우 (샘플 skip)."""
+    """--anchor question was requested but the ' {category}' token sequence was not found (sample skipped)."""
 
 
 @torch.no_grad()
@@ -296,13 +296,12 @@ def run_variant(backend: ModelBackend, pil_images, category, context, options,
 
     anchor_ctx = ''
     if anchor == 'question':
-        # 질문 템플릿 "... that contains {category}?" 을 직접 겨냥한다:
-        # ' contains' 토큰열 출현 뒤에 category 변형이 바로 이어지는 첫 위치.
+        # Target the question template "... that contains {category}?" directly:
+        # the first position where a category variant immediately follows the ' contains' tokens.
         #
-        # ※ 단순 '첫 {category} 출현' 검색(구 cattok_anchor_check.py 방식)은 쓰면
-        #   안 된다. filler 텍스트가 'person', 'car', 'orange' 같은 흔한 category
-        #   단어를 포함하는 샘플이 23.5%(1,411/6,000)로 실측됐다 (2026-08-09).
-        #   구 리부탈 question-anchor 수치(offset -1)도 이 오염을 포함한다.
+        # Do not search for the first occurrence of '{category}' alone: the filler text
+        # contains common category words such as 'person', 'car' or 'orange' in about
+        # 23.5% of the samples (1,411 of 6,000), which would anchor inside the filler.
         cont = backend.tokenizer(' contains', add_special_tokens=False)['input_ids']
         clean = re.sub(r'^(a|an)\s+', '', category.strip())
         var_ids = [backend.tokenizer(v, add_special_tokens=False)['input_ids']
@@ -320,7 +319,7 @@ def run_variant(backend: ModelBackend, pil_images, category, context, options,
                 break
         if q_pos is None:
             raise QAnchorNotFound('contains_seq_not_found')
-        # 실행 시점 이중 검증: 디코드된 직전 문맥에 'contains' 가 실제로 있는지.
+        # Runtime double check: the decoded context just before the anchor must contain 'contains'.
         anchor_ctx = backend.tokenizer.decode(ids_list[max(0, q_pos - 8):q_pos + 2])
         if 'contains' not in anchor_ctx:
             raise QAnchorNotFound('ctx_mismatch')
@@ -385,7 +384,7 @@ def save_sample_group(hdf5_file, sample, target_0idx, run_results, verified,
     grp.attrs['target_category'] = sample['target_category']
     grp.attrs['context_length'] = sample['context_length']
     grp.attrs['verified'] = int(verified)
-    # anchor 출처 자기기술 (question 모드 검증·사후 감사용)
+    # Self-describing anchor provenance (for verifying the question mode and later audits).
     grp.attrs['anchor_pos'] = int(run_results[0].get('cat_pos', -1))
     grp.attrs['anchor_ctx'] = str(run_results[0].get('anchor_ctx', ''))
 
@@ -477,17 +476,17 @@ def main(args):
     print(f"  MCQ token IDs: {mcq_token_ids}")
 
     if args.preflight:
-        # knob 검증 (launch 전 필수). 세 단계:
-        #  (0) 모듈 의미 검증 — 예외 클래스가 진짜 예외인지 (2026-08-09 데코레이터
-        #      삽입 사고: py_compile 은 통과하는데 런타임에 죽는 유형을 여기서 잡는다)
-        #  (1) 위치 검증 — 일반 3개 + filler-충돌 3개 샘플에서 anchor 가 질문 문장에
-        #      착지하고('contains' 문맥), canonical 과 다른지
-        #  (2) 경로 검증 — 충돌 샘플 1개를 run_variant 로 끝까지 실행 (수정된 코드
-        #      경로 전체가 실제로 돈다는 증명)
+        # Knob verification (required before a launch). Three stages:
+        #  (0) module sanity: the exception class must really be an exception (catches
+        #      edits that pass py_compile but fail at run time)
+        #  (1) position check: on 3 ordinary and 3 filler-collision samples the anchor must land
+        #      in the question sentence (a 'contains' context) and differ from the canonical anchor
+        #  (2) path check: one collision sample is run end to end through run_variant (proof that
+        #      the modified code path actually executes)
         ok = True
         if not (isinstance(QAnchorNotFound, type)
                 and issubclass(QAnchorNotFound, Exception)):
-            print('  [preflight] FAIL: QAnchorNotFound 가 예외 클래스가 아님')
+            print('  [preflight] FAIL: QAnchorNotFound is not an exception class')
             ok = False
         normal, collide = [], []
         for s in samples:
@@ -510,7 +509,7 @@ def main(args):
                                 anchor='question') if s is collide[0] else None
             except QAnchorNotFound as e:
                 print(f"  [preflight] id={s['id']} run_variant skip: {e}"); ok = False; r = None
-            # 위치만 별도 재계산 (run_variant 와 동일 로직)
+            # Recompute the position only (same logic as run_variant)
             cont = backend.tokenizer(' contains', add_special_tokens=False)['input_ids']
             _clean = re.sub(r'^(a|an)\s+', '', cat.strip())
             vidss = [backend.tokenizer(v, add_special_tokens=False)['input_ids']
@@ -523,7 +522,7 @@ def main(args):
                     if vids and ids[j:j + len(vids)] == vids: q = j + len(vids) - 1; break
                 if q is not None: break
             ctx_q = backend.tokenizer.decode(ids[max(0, (q or 0) - 8):(q or 0) + 2])
-            tag = '충돌' if s in collide else '일반'
+            tag = 'collision' if s in collide else 'ordinary'
             good = q is not None and q != last and 'contains' in ctx_q
             ok = ok and good
             print(f"  [preflight] [{tag}] id={s['id']} cat={cat!r} last={last} q={q} "
@@ -531,8 +530,8 @@ def main(args):
             if r is not None:
                 e2e = r.get('cat_pos') == q and 'contains' in r.get('anchor_ctx', '')
                 ok = ok and e2e
-                print(f"  [preflight] [경로] run_variant cat_pos={r.get('cat_pos')} "
-                      f"(기대 {q}) {'✓' if e2e else '✗'}")
+                print(f"  [preflight] [path] run_variant cat_pos={r.get('cat_pos')} "
+                      f"(expected {q}) {'OK' if e2e else 'MISMATCH'}")
         print(f"  [preflight] {'OK' if ok else 'FAIL'}")
         return
 
@@ -596,8 +595,8 @@ def main(args):
                         'anchor_ctx': r['anchor_ctx'],
                     })
                 if args.anchor == 'question':
-                    # 질문 anchor 는 선택지 앞이므로 4개 rotation 에서 위치가
-                    # 동일해야 한다. 다르면 anchor 가 선택지에 걸렸다는 뜻.
+                    # The question anchor precedes the options, so its position must be
+                    # identical across the 4 rotations; otherwise the anchor landed in an option.
                     _ps = {rr['cat_pos'] for rr in run_results}
                     if len(_ps) != 1:
                         raise QAnchorNotFound(f'rotation_inconsistent:{sorted(_ps)}')
@@ -672,10 +671,10 @@ if __name__ == '__main__':
     parser.add_argument('--worker-id', type=int, default=0)
     parser.add_argument('--num-workers', type=int, default=1)
     parser.add_argument('--anchor', choices=['last', 'question'], default='last',
-                        help="cattok anchor: 'last'=canonical(논문, 마지막 언급), "
-                             "'question'=질문 줄 첫 언급 (robustness 확장 전용. "
-                             "산출물을 canonical 트리에 섞지 말 것)")
+                        help="cattok anchor: 'last' = canonical (as in the paper, last mention), "
+                             "'question' = first mention in the question line (robustness variant only; "
+                             "keep its outputs separate from the canonical tree)")
     parser.add_argument('--preflight', type=int, default=0,
-                        help='N개 샘플로 anchor 위치만 출력하고 종료 (knob 검증)')
+                        help='print the anchor position for N samples and exit (knob verification)')
     args = parser.parse_args()
     main(args)

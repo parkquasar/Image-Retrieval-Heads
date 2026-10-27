@@ -88,12 +88,12 @@ def load_cell(model_dir, hs, k, source, seed=None):
     fn = f'hs{hs}_top{k}_{PHASE}_{src_tag}_{abl_tag}.jsonl'
     res = jsonl_acc(os.path.join(base, fn))
     if res is None and abl_tag == 'catpos_cattok_onwards' and src_tag == 'baseline':
-        # baseline(무개입)만 legacy 태그 폴백 허용. random 폴백은 제거했다:
-        # 2026-08 검증에서 qzero/catpos random 이 최대 4.2pp 다름이 확인됐다.
+        # Only the unablated baseline may fall back to the legacy tag. The random fallback was removed:
+        # random controls under qzero and catpos differ by up to 4.2 pp, so they must not be mixed.
         legacy_fn = f'hs{hs}_top{k}_{PHASE}_{src_tag}_qzero_catpos_cattok_onwards.jsonl'
         res = jsonl_acc(os.path.join(base, legacy_fn))
         if res is not None:
-            print(f'[fallback] baseline legacy tag 사용: {model_dir} hs{hs}')
+            print(f'[fallback] using the legacy baseline tag: {model_dir} hs{hs}')
     if res is None:
         return None
     correct, total = res

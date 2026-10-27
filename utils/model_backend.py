@@ -102,7 +102,7 @@ class ModelBackend:
         elif self.family == 'qwen3vl':
             return self.model.model.language_model.layers
         elif self.family == 'gemma3':
-            # transformers 버전에 따라 두 경로 모두 존재 가능 -> 방어적으로 탐색
+            # Both attribute paths exist depending on the transformers version; search defensively
             for path in (lambda m: m.model.language_model.layers,
                          lambda m: m.language_model.model.layers,
                          lambda m: m.model.language_model.model.layers):
@@ -112,7 +112,7 @@ class ModelBackend:
                         return lay
                 except AttributeError:
                     continue
-            raise AttributeError('gemma3: language model layers를 찾지 못함')
+            raise AttributeError('gemma3: language model layers not found')
         else:  # llava_ov
             return self.model.model.language_model.layers
 
@@ -133,7 +133,7 @@ class ModelBackend:
             eos_id = self.tokenizer.convert_tokens_to_ids('<|im_end|>')
             self.eos_id = eos_id or self.tokenizer.eos_token_id
         elif self.family == 'gemma3':
-            # Gemma-3는 이미지당 고정 256 soft token. image_token_index가 그 placeholder.
+            # Gemma-3 uses a fixed 256 soft tokens per image; image_token_index is the placeholder.
             cfg = self.model.config
             tid = getattr(cfg, 'image_token_index', None)
             if tid is None:
@@ -141,7 +141,7 @@ class ModelBackend:
             if tid is None:
                 tid = self.tokenizer.convert_tokens_to_ids('<image_soft_token>')
             if tid is None or tid < 0:
-                raise ValueError('gemma3: image token id를 찾지 못함')
+                raise ValueError('gemma3: image token id not found')
             self.image_token_id = int(tid)
             self.eos_id = self.tokenizer.eos_token_id
         elif self.family == 'qwen3vl':
@@ -220,7 +220,7 @@ class ModelBackend:
         elif self.family == 'qwen3vl':
             return _find_bracketed_ranges(ids_list, self.vs_id, self.ve_id)
         elif self.family == 'gemma3':
-            # 이미지당 정확히 256개의 연속 image token -> consecutive run 분할로 충분
+            # Exactly 256 consecutive image tokens per image, so splitting consecutive runs suffices
             return _find_consecutive_ranges(ids_list, self.image_token_id)
         else:  # llava_ov
             return _find_consecutive_ranges(ids_list, self.image_token_id)
@@ -357,10 +357,10 @@ class ModelBackend:
         }
 
     def _build_inputs_gemma3(self, pil_images, prompt, interleave_marker):
-        """Gemma-3: 이미지당 고정 256 soft token이므로 별도 resize 규약이 불필요하다.
+        """Gemma-3: a fixed 256 soft tokens per image, so no separate resize convention is needed.
 
-        LLaVA-OneVision에서 문제가 됐던 "한 프롬프트 안에서 후보 이미지마다
-        visual token 수가 다름" 이슈가 Gemma-3에는 구조적으로 없다.
+        The LLaVA-OneVision issue of candidate images contributing different numbers of
+        visual tokens within one prompt cannot arise for Gemma-3.
         """
         content = _build_content_with_images(prompt, pil_images, interleave_marker,
                                              image_entry=lambda pil: {'type': 'image', 'image': pil})
@@ -397,10 +397,10 @@ class ModelBackend:
 
     @torch.no_grad()
     def _extract_emb_gemma3(self, inputs):
-        """이미지별 pre/post-projector feature 평균.
+        """Per-image mean of the pre- and post-projector features.
 
-        vision_tower -> multi_modal_projector 경로를 직접 태운다. Gemma-3는
-        이미지당 토큰 수가 고정이라 단순 reshape로 이미지별 분할이 가능하다.
+        Runs the vision_tower -> multi_modal_projector path directly. Gemma-3 has a fixed
+        number of tokens per image, so a plain reshape splits the images.
         """
         pv = inputs.get('pixel_values')
         if pv is None:

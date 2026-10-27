@@ -63,8 +63,7 @@ MODEL_CONFIGS = {
         'retriever_ranking': 'retriever_best',
         'num_layers': 36, 'num_heads': 32, 'head_dim': 128,
     },
-    # 384 정사각 강제 버전 (논문 convention: 모델 native 단일 타일 해상도로 이미지당 토큰 균일화).
-    # 기존 llava_ov_7b 트리는 read-only(555)라 새 model_dir 사용.
+    # Forced 384x384 single-tile version (paper convention: the model's native single-tile resolution, equal tokens per image).
 }
 
 

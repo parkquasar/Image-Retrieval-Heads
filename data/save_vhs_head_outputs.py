@@ -36,10 +36,10 @@ VHS_DATA_ROOT = os.path.join(DATA_ROOT, 'single_needle', 'VHs_large')
 
 
 def uniquify_ids(samples):
-    """multi_needle json은 id가 yes/no 변형 쌍으로 중복된다(예: 1000샘플=500 id×2,
-    쌍의 pos_image 구성이 다름). json 순서 기반 #k 접미사로 고유화한다.
-    single_needle처럼 id가 이미 고유하면 아무것도 바꾸지 않는다(no-op).
-    추출·평가가 같은 json 순서에 이 함수를 적용하는 한 uid는 결정적으로 일치한다."""
+    """In the multi_needle json each id appears twice (yes/no variants, e.g. 1,000 samples = 500 ids x 2)
+    with different pos_image sets; a '#k' suffix based on json order makes them unique.
+    When ids are already unique (single_needle) nothing changes (no-op).
+    As long as extraction and evaluation apply this to the same json order, the uids match deterministically."""
     seen = {}
     for s in samples:
         k = seen.get(s['id'], 0)
@@ -50,10 +50,10 @@ def uniquify_ids(samples):
 
 
 def build_haystack_map(samples):
-    """seed-42 순차 셔플 — 기존 hs2–20 h5 및 모든 reader(sweep_retrieved_hs,
-    eval_vhs_retrieve_then_verify)와 동일한 방식. 2026-08-19에 기존 h5 attrs
-    pos_idx와 2000/2000 정합 검증됨. 단일 rng를 json 전체 순서로 소비하므로
-    resume으로 샘플을 건너뛰어도 맵은 전체에 대해 먼저 만들어야 정렬이 유지된다."""
+    """Sequential seed-42 shuffle, identical to the one used for the released hs2-20 H5 files and by
+    every reader of them. A single rng is consumed over the whole json order, so the map must be
+    built for the full json before any sample is skipped on resume; otherwise the
+    alignment with the stored pos_idx attributes is lost."""
     import random
     rng = random.Random(42)
     result = {}
@@ -251,7 +251,7 @@ def run_hs(backend, cfg, hs, out_root, limit=None, data_root=VHS_DATA_ROOT):
         print(f"[SKIP] hs={hs} not found"); return
 
     samples = uniquify_ids(json.load(open(json_path)))
-    # 맵은 limit 적용 전 전체 json에서 생성해야 rng 소비 순서가 reader와 일치한다.
+    # Build the map from the full json before applying --limit so the rng order matches the readers.
     haystack_map = build_haystack_map(samples)
     if limit:
         samples = samples[:limit]
@@ -275,8 +275,8 @@ def run_hs(backend, cfg, hs, out_root, limit=None, data_root=VHS_DATA_ROOT):
             if grp_key in done_keys:
                 continue
             haystack_rels = haystack_map[sid]
-            # multi-needle은 pos_image가 2장 이상 — 전 인덱스를 attr로 남기고
-            # pos_idx는 첫 장으로 유지 (single-needle 하위호환)
+            # multi-needle has two or more pos_images: store all indices as an attribute and
+            # keep pos_idx as the first one (single-needle compatibility)
             pos_idxs = [haystack_rels.index(p) for p in sample['pos_image']]
             pos_idx = pos_idxs[0]
             question = sample['conversations'][0]['value']
@@ -327,8 +327,8 @@ if __name__ == '__main__':
     parser.add_argument('--outputs-dir', default=None,
                         help='Default: $ATTN_ROOT/{model_dir}/vhs')
     parser.add_argument('--limit', type=int, default=None,
-                        help='Preflight용: 앞 N개 샘플만 (셔플 맵은 전체 기준 유지)')
+                        help='preflight: only the first N samples (the shuffle map is still built on the full json)')
     parser.add_argument('--data-root', default=VHS_DATA_ROOT,
-                        help='VHs json 디렉토리 (multi_needle 등 변형용)')
+                        help='VHs json directory (for variants such as multi_needle)')
     args = parser.parse_args()
     main(args)

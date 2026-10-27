@@ -374,10 +374,9 @@ PARTITION_SOURCES = frozenset({
     'pointer_only', 'writer_only',
 })
 
-# 제거된 이름들 (2026-08-08). max-rank 정렬 overlap 은 논문 arm 이 아닌데
-# alias `pointer_writer_overlap` 이 조용히 그쪽으로 매핑돼 있어 E3(리부탈)가
-# 의도치 않게 다른 정렬로 실행됐다. 논문 overlap arm 은 `overlap_set_attn`
-# (pointer-rank 정렬) 하나뿐이다. 옛 이름을 넘기면 명시적으로 실패한다.
+# Removed names. The max-rank-sorted overlap is not the paper's arm; the former alias
+# 'pointer_writer_overlap' silently mapped to it. The paper's overlap arm is 'overlap_set_attn'
+# (pointer-rank order) only. Passing an old name fails explicitly.
 REMOVED_SOURCES = frozenset({'overlap_set', 'pointer_writer_overlap'})
 
 
@@ -411,10 +410,10 @@ def get_top_k_heads(cfg, hs, k, phase='cattok', source='attn_score', random_seed
         source = 'retr_only_set'
     if source in REMOVED_SOURCES:
         raise ValueError(
-            f"ranking-source '{source}' 는 제거됐다 (2026-08-08). max-rank 정렬 overlap 은 "
-            f"논문 arm 이 아니며, alias 'pointer_writer_overlap' 이 그쪽으로 매핑돼 있던 것이 "
-            f"E3(리부탈) 오실행의 원인이었다. 논문 overlap arm 은 'overlap_set_attn' "
-            f"(pointer-rank 정렬) 하나다. build_setpartition_view.py SOURCES 참조.")
+            f"ranking-source '{source}' has been removed. The max-rank-sorted overlap is not "
+            f"the paper's arm, and the alias 'pointer_writer_overlap' used to map to it. "
+            f"The paper's overlap arm is 'overlap_set_attn' (pointer-rank order) only. "
+            f"See SOURCES in build_setpartition_view.py.")
     if k == 0 or source == 'baseline':
         return [], []
     if source == 'retriever':
@@ -529,8 +528,8 @@ def _top_k_set_partition(cfg, k, phase, mode='overlap', N=100, sort_by='default'
     """Within the partition (defined by top-N) of attn∪retr, take the top-k
     heads from one disjoint subset:
       overlap     : heads in BOTH attn-top-N and retr-top-N.
-                    논문 arm 은 sort_by='attn' (rank_attn ascending) 하나뿐이다.
-                    max-rank 정렬(구 'default')은 2026-08-08 에 제거됐다 — E3 오실행 원인.
+                    The paper's arm is sort_by='attn' (rank_attn ascending) only.
+                    The max-rank order (formerly 'default') has been removed.
       attn_only   : in attn-top-N but NOT retr-top-N, ordered by rank_attn
       retr_only   : in retr-top-N but NOT attn-top-N, ordered by rank_retr
     `N` is the partition threshold (default 100). `k` is # heads to ablate; if
@@ -538,7 +537,7 @@ def _top_k_set_partition(cfg, k, phase, mode='overlap', N=100, sort_by='default'
     """
     if mode == 'overlap' and sort_by != 'attn':
         raise ValueError(
-            f"overlap 정렬은 'attn'(논문 arm)만 지원한다. sort_by={sort_by!r} 는 제거됨.")
+            f"only the 'attn' overlap order (the paper's arm) is supported; sort_by={sort_by!r} was removed.")
     coco_csv = get_resolver().pointer_csv(cfg['model_dir'], phase, require=False)
     if not os.path.exists(coco_csv):
         raise FileNotFoundError(f'attn_score CSV missing: {coco_csv}')
@@ -548,11 +547,10 @@ def _top_k_set_partition(cfg, k, phase, mode='overlap', N=100, sort_by='default'
             attn_rows.append((int(row['layer']), int(row['head']), float(row['r1'])))
     attn_rank = _load_rank_dict(attn_rows)
 
-    # writer 랭킹은 반드시 resolver를 통해 해석한다.
-    # 2026-07-26 사고: 이 함수가 cfg['retriever_ranking']만 읽어서, matched-writer
-    # ablation이 override를 설정했는데도 20개 arm 전부가 canonical partition으로
-    # 조용히 실행됐다. resolver가 manifest/env/cfg 우선순위를 한 곳에서 처리하고
-    # 해석 결과를 로그에 남기므로 같은 침묵 실패가 재발하지 않는다.
+    # The writer ranking must be resolved through the resolver: reading cfg['retriever_ranking']
+    # directly once ran all arms on the canonical partition although an override had been set.
+    # The resolver applies the manifest/env/cfg precedence in one place and logs the result,
+    # so that silent failure cannot recur.
     retr_dir_name = get_resolver().writer_ranking(cfg['model_dir'], cfg.get('retriever_ranking'))
     if os.path.isabs(retr_dir_name):
         retr_dir = retr_dir_name
