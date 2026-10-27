@@ -3,7 +3,9 @@
 Code and data for the NeurIPS 2026 paper.
 
 - Dataset (ICIR-MCQ, 6,000 samples, CC BY 4.0): https://huggingface.co/datasets/jerryray/ICIR-MCQ
-- Code: this repository (MIT, see `LICENSE`; third-party notices in `THIRD_PARTY_NOTICES.md`) The pipeline finds *pointer heads* (attention mass
+- Code: this repository (MIT, see `LICENSE`; third-party notices in `THIRD_PARTY_NOTICES.md`)
+
+The pipeline finds *pointer heads* (attention mass
 on the target image) and *writer heads* (a lightweight retriever trained on the head output can
 recover the target image) in InternVL3.5 and Qwen3-VL, then checks causal relevance with
 output-zero ablations on Visual Haystacks.
