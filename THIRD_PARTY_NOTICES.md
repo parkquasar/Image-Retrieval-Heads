@@ -9,6 +9,7 @@ licenses apply to those parts.
 | `utils/model_utils.py`, InternVL image loading and chat helpers | InternVL model card and repository (OpenGVLab) | MIT |
 | `eval/eval_vhs_qwen3vl_embedder.py`, `Qwen3VLForEmbedding` wrapper and embedding pooling | Qwen3-VL-Embedding reference implementation (Alibaba Qwen team) | Apache-2.0 |
 | `eval/eval_vhs_external_retrievers.py`, the 80 prompt templates | CLIP (OpenAI) | MIT |
+| `eval/eval_vhs_qwen3vl_embedder.py`, `_smart_resize_image` (the image-resizing rule of `qwen_vl_utils`, reimplemented) | qwen-vl-utils (Alibaba Qwen team) | Apache-2.0 |
 
 Models are downloaded from the HuggingFace Hub under their own licenses:
 InternVL3.5 (Apache-2.0), Qwen3-VL and Qwen3-VL-Embedding (Apache-2.0), CLIP (MIT),
